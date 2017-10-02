@@ -111,12 +111,12 @@ void setup() {
   RTC.begin();
   dht.begin();
   if (!RTC.isrunning()) {
+    RTC.adjust(DateTime(__DATE__, __TIME__));
 #ifdef _DEBUG_
     Serial.println("RTC is NOT running!");
 #endif
     // This will reflect the time that your sketch was compiled
   }
-  RTC.adjust(DateTime(__DATE__, __TIME__));
 
   dleds1.begin();
   dleds2.begin();
@@ -346,6 +346,7 @@ void onDay() {
 void onNightStart() {
   isRain = 0;
   isNight = 1; 
+  powerOff(0);
 #ifdef _DEBUG_
   Serial.println("NIGHT START:");
 #endif
