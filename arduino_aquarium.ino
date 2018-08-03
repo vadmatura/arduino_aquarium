@@ -19,13 +19,14 @@ git clone https://github.com/adafruit/RTClib.git
 
 #define _DEBUG_
 
-#define LED_PIN1    3
-#define LED_PIN2    4
-#define DHT22_PIN   5
-#define IR_PIN      8
-#define PUMP_PIN    9
-#define FAN_PIN     10
-#define HEATER_PIN  11
+#define LED_PIN1      3
+#define LED_PIN2      4
+#define DHT22_PIN     5
+#define IR_PIN        8
+#define AIR_PUMP_PIN  9
+#define PUMP_PIN      10
+#define FAN_PIN       11
+#define HEATER_PIN    12
 //SDA A4
 //SDL A5
 
@@ -34,6 +35,7 @@ git clone https://github.com/adafruit/RTClib.git
 #define MSEC_DIFF_ON_CYCLE  60000
 #define RAIN_LIGHT_MIN      8
 #define FAN_LATENT_MIN      5
+#define LEDS_COUNT          16
 
 //============================ Classes start ===================================
 //******************************************************************************
@@ -67,10 +69,10 @@ private:
 public:
   void begin() {
 		if (isNeedReset()) {
-	    EEPROM.write(S_S, 1);
+	    EEPROM.write(S_IS_NEED_RESET, 1);
 			delay(1);
 	    for (uint8_t i = S_MIN; i < S_MAX; i++) {
-	      EEPROM.write(i, defSettings[i - S_MIN]);
+	      EEPROM.write(i, m_def[i - S_MIN]);
 				delay(1);
 	    }
 		}
@@ -82,19 +84,19 @@ public:
 	}
 
 	void setNeedReset() {
-    EEPROM.write(S_S, 0);
+    EEPROM.write(S_IS_NEED_RESET, 0);
   }
 
 	void read() {
 		for (uint8_t i = S_MIN; i < S_MAX; i++) {
-	    settings[i - S_MIN] = EEPROM.read(i);
+	    m_data[i - S_MIN] = EEPROM.read(i);
 	  }
 	}
 
 	void save() {
 	  if (m_notSaved) {
 	    for (uint8_t i = S_MIN; i < S_MAX; i++) {
-	      EEPROM.write(i, settings[i - S_MIN]);
+	      EEPROM.write(i, m_data[i - S_MIN]);
 	      delay(1);
 	    }
 	    m_notSaved = false;
@@ -164,12 +166,11 @@ public:
     }
 	}
 #endif
-}
+};
 
 //******************************************************************************
 class LightManager {
-
-	#define L_LEDS_COUNT      16
+  
 	#define L_SUN_RICE_HOUR   8
 	#define L_SUN_SET_HOUR    23
 
@@ -195,12 +196,15 @@ class LightManager {
 private:
 
 	volatile uint8_t m_colors[3];
+  volatile uint8_t m_max[3];
 	volatile uint8_t m_lamps[3] = {0,0,0};
 	volatile uint8_t m_mode = L_MODE_DAY;
 
+  Adafruit_NeoPixel m_dleds;
+
 	uint8_t reduce(uint8_t pos, uint8_t stepLight, uint8_t minLight) {
-	  if (colors[pos] > minLight) {
-	    colors[pos] -= stepLight;
+	  if (m_colors[pos] > minLight) {
+	    m_colors[pos] -= stepLight;
 	    return 0;
 	  } else {
 	    return 1;
@@ -208,10 +212,10 @@ private:
 	}
 
 	uint8_t increase(uint8_t pos, uint8_t stepLight) {
-	  if (colors[pos] < settings[pos]) {
-	    colors[pos] += stepLight;
-	    if (colors[pos] > settings[pos]) {
-	       colors[pos] = settings[pos];
+	  if (m_colors[pos] < m_max[pos]) {
+	    m_colors[pos] += stepLight;
+	    if (m_colors[pos] > m_max[pos]) {
+	       m_colors[pos] = m_max[pos];
 	    }
 	    return 0;
 	  } else {
@@ -220,20 +224,20 @@ private:
 	}
 
 	uint8_t nightStep(uint8_t colorPos) {
-	  if (colors[colorPos] >= 128) {
+	  if (m_colors[colorPos] >= 128) {
 	    return 4;
 	  }
-	  if (colors[colorPos] >= 16) {
+	  if (m_colors[colorPos] >= 16) {
 	    return 2;
 	  }
 	  return 1;
 	}
 
 	uint8_t rainStep(uint8_t colorPos) {
-	  if (colors[colorPos] >= 128) {
+	  if (m_colors[colorPos] >= 128) {
 	    return 16;
 	  }
-	  if (colors[colorPos] >= 32) {
+	  if (m_colors[colorPos] >= 32) {
 	    return 8;
 	  }
 	  return 4;
@@ -246,22 +250,25 @@ private:
 	}
 
 	void setLed(uint8_t r, uint8_t g, uint8_t b, uint8_t pos) {
-	  dleds.setPixelColor(pos, dleds.Color(r, g, b));
+	  m_dleds.setPixelColor(pos, m_dleds.Color(r, g, b));
 	}
 
 public:
 	volatile bool isLampMode = false;
 
 	LightManager() {
-		Adafruit_NeoPixel dleds = Adafruit_NeoPixel(LEDS_COUNT, LED_PIN1, NEO_GRB + NEO_KHZ800);
+		m_dleds = Adafruit_NeoPixel(LEDS_COUNT, LED_PIN1, NEO_GRB + NEO_KHZ800);
 	}
 
 	void begin(uint8_t r, uint8_t g, uint8_t b) {
-		dleds.begin();
-		lightOn();
+		m_dleds.begin();
+		set();
 	  m_colors[L_COL_R] = r;
 	  m_colors[L_COL_G] = g;
 	  m_colors[L_COL_B] = b;
+    m_max[L_COL_R] = r;
+    m_max[L_COL_G] = g;
+    m_max[L_COL_B] = b;
 	}
 
 	void set() {
@@ -275,18 +282,16 @@ public:
         setLeds(m_colors[L_COL_R], m_colors[L_COL_G], m_colors[L_COL_B]);
       }
     }
-	  dleds.show();
+	  m_dleds.show();
 #ifdef _DEBUG_
-	  Serial.print("night:");
-	  Serial.print(isNight);
-	  Serial.print(" rain:");
-	  Serial.print(isRain);
+	  Serial.print("m_mode:");
+	  Serial.print(m_mode);
 	  Serial.print(" RGB:");
-	  Serial.print(colors[S_COL_R]);
+	  Serial.print(m_colors[S_COL_R]);
 	  Serial.print(".");
-	  Serial.print(colors[S_COL_G]);
+	  Serial.print(m_colors[S_COL_G]);
 	  Serial.print(".");
-	  Serial.println(colors[S_COL_B]);
+	  Serial.println(m_colors[S_COL_B]);
 #endif
 	}
 
@@ -385,24 +390,24 @@ public:
 		uint8_t i;
 	  pos++;
 	  for (i = 7; i >= 5; i--) {
-	    dleds.setPixelColor(i, dleds.Color(pos >= 1?1:0, pos >= 2?1:0, pos >= 3?1:0));
+	    m_dleds.setPixelColor(i, m_dleds.Color(pos >= 1?1:0, pos >= 2?1:0, pos >= 3?1:0));
 	    pos -= 3;
 	  }
-	  pos = (val / step()) % 10;
+	  pos = (val / step) % 10;
 	  for (i = 0; i < 3; i++) {
-	    dleds.setPixelColor(i, dleds.Color(pos >= 1?1:0, pos >= 2?1:0, pos >= 3?1:0));
+	    m_dleds.setPixelColor(i, m_dleds.Color(pos >= 1?1:0, pos >= 2?1:0, pos >= 3?1:0));
 	    pos -= 3;
 	  }
-	  pos = (val / step()) / 10;
+	  pos = (val / step) / 10;
 	  for (i = 3; i < 5; i++) {
-	    dleds.setPixelColor(i, dleds.Color(pos >= 1?1:0, pos >= 2?1:0, pos >= 3?1:0));
+	    m_dleds.setPixelColor(i, m_dleds.Color(pos >= 1?1:0, pos >= 2?1:0, pos >= 3?1:0));
 	    pos -= 3;
 	  }
-	  for (i = 8; i < L_LEDS_COUNT; i++) {
-	    dleds.setPixelColor(i, dleds.Color(0, 0, 0));
+	  for (i = 8; i < LEDS_COUNT; i++) {
+	    m_dleds.setPixelColor(i, m_dleds.Color(0, 0, 0));
 	  }
 	}
-}
+};
 
 //******************************************************************************
 //******************************************************************************
@@ -426,6 +431,7 @@ volatile uint8_t heatOnMin = 0;
 volatile uint8_t isRain = 0;
 volatile float humidity = 0;
 volatile float temperature = 0;
+volatile uint8_t airPumpWork = 0;
 
 volatile unsigned long _irValue;
 volatile unsigned long _msek = 0;
@@ -435,11 +441,12 @@ volatile bool isSettingsShowing = false;
 
 void setup() {
   sm.begin();
+  pinMode(AIR_PUMP_PIN, OUTPUT);
   pinMode(PUMP_PIN, OUTPUT);
   pinMode(FAN_PIN, OUTPUT);
   pinMode(HEATER_PIN, OUTPUT);
-  lm.begin(sm.get[S_COL_R], sm.get[S_COL_G], sm.get[S_COL_B]);
-  pumpOffMin = sm.get[S_MOTOR_OFF_MIN];
+  lm.begin(sm.get(S_COL_R), sm.get(S_COL_G), sm.get(S_COL_B));
+  pumpOffMin = sm.get(S_MOTOR_OFF_MIN);
   // start serial port at 9600 bps:
 #ifdef _DEBUG_
   Serial.begin(9600);
@@ -461,7 +468,7 @@ void setup() {
 
 
   currentTime = RTC.now();
-  sm.set(SN_RAIN_HOUR, currentTime.secondstime() % (SUN_SET_HOUR - SUN_RICE_HOUR) + SUN_RICE_HOUR);
+  sm.set(SN_RAIN_HOUR, currentTime.secondstime() % (L_SUN_SET_HOUR - L_SUN_RICE_HOUR) + L_SUN_RICE_HOUR);
   delay(1000);
 }
 
@@ -561,7 +568,6 @@ void onIrButtonPressed(unsigned long irValue) {
       break;
     case 0xFF4AB5://0
       lm.isLampMode = !lm.isLampMode;
-      _isDirty = 0;
       break;
     case 0xFF629D://up
       if (lm.isLampMode) {
@@ -592,7 +598,7 @@ void onIrButtonPressed(unsigned long irValue) {
       sm.save();
       break;
     case 0xFF52AD://#
-      pumpStart();
+      //pumpStart();
       break;
     case 0xFF42BD://*
       if (lm.isRain()) {
@@ -632,16 +638,27 @@ void onSecond() {
 }
 
 void onMinute() {
-  saveSettings();
+  sm.save();
   pumpOffMin--;
-  if (pumpOffMin == 0) {
+  /*if (pumpOffMin == 0) {
     pumpStart();
-  }
-  if (currentTime.hour() == SUN_RICE_HOUR && currentTime.minute() < 15 && lm.isNight())) {
+  }*/
+  if (currentTime.hour() == L_SUN_RICE_HOUR && currentTime.minute() < 15 && lm.isNight()) {
     lm.morningStart();
   }
-  if (currentTime.hour() == SUN_SET_HOUR && currentTime.minute() < 15 && !lm.isNight())) {
+  if (currentTime.hour() == L_SUN_SET_HOUR && currentTime.minute() < 15 && !lm.isNight()) {
     lm.eveningStart();
+  }
+  
+  // Air pump
+  
+  airPumpWork++;
+  if (airPumpWork == 1) {
+    analogWrite(AIR_PUMP_PIN, 0);
+  } else if (airPumpWork == 5) {
+    analogWrite(AIR_PUMP_PIN, 255);
+  } else if (airPumpWork >= 10) {
+    airPumpWork = 0;
   }
   /*if (humidity > settings[S_HUMIDITY_PERC]) {
     if (fanOnMin < FAN_LATENT_MIN) {
@@ -667,7 +684,7 @@ void onHour() {
 }
 
 void onDay() {
-  sm.set(SN_RAIN_HOUR, millis() % (SUN_SET_HOUR - SUN_RICE_HOUR) + SUN_RICE_HOUR);
+  sm.set(SN_RAIN_HOUR, millis() % (L_SUN_SET_HOUR - L_SUN_RICE_HOUR) + L_SUN_RICE_HOUR);
 }
 //-----------------------FUNCS----------------------------
 
