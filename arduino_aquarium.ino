@@ -80,11 +80,12 @@ public:
 	}
 
 	bool isNeedReset() {
-		return EEPROM.read(S_IS_NEED_RESET);
+		return EEPROM.read(S_IS_NEED_RESET) == 0;
 	}
 
 	void setNeedReset() {
     EEPROM.write(S_IS_NEED_RESET, 0);
+    delay(1);
   }
 
 	void read() {
@@ -116,7 +117,7 @@ public:
 	}
 
 	uint8_t get(uint8_t pos) {
-		if (S_MIN <= pos && pos <= S_MAX) {
+		if (0 <= pos && pos <= S_COUNT) {
 			return m_data[pos];
 		} else {
 			return 0;
@@ -124,7 +125,7 @@ public:
 	}
 
 	void set(uint8_t pos, uint8_t val) {
-		if (S_MIN <= pos && pos <= S_MAX) {
+		if (0 <= pos && pos <= S_COUNT) {
 			m_data[pos] = val;
 			m_notSaved = true;
 		}
@@ -199,6 +200,10 @@ private:
   volatile uint8_t m_max[3];
 	volatile uint8_t m_lamps[3] = {0,0,0};
 	volatile uint8_t m_mode = L_MODE_DAY;
+  volatile bool m_settingsShow = false;
+  volatile uint8_t m_pos;
+  volatile uint8_t m_val;
+  volatile uint8_t m_step;
 
   Adafruit_NeoPixel m_dleds;
 
@@ -244,7 +249,7 @@ private:
 	}
 
 	void setLeds(uint8_t r, uint8_t g, uint8_t b) {
-	  for (uint8_t pos = 0; pos < 8; pos++) {
+	  for (uint8_t pos = 0; pos < LEDS_COUNT; pos++) {
 	    setLed(r, g, b, pos);
 	  }
 	}
@@ -253,25 +258,7 @@ private:
 	  m_dleds.setPixelColor(pos, m_dleds.Color(r, g, b));
 	}
 
-public:
-	volatile bool isLampMode = false;
-
-	LightManager() {
-		m_dleds = Adafruit_NeoPixel(LEDS_COUNT, LED_PIN1, NEO_GRB + NEO_KHZ800);
-	}
-
-	void begin(uint8_t r, uint8_t g, uint8_t b) {
-		m_dleds.begin();
-		set();
-	  m_colors[L_COL_R] = r;
-	  m_colors[L_COL_G] = g;
-	  m_colors[L_COL_B] = b;
-    m_max[L_COL_R] = r;
-    m_max[L_COL_G] = g;
-    m_max[L_COL_B] = b;
-	}
-
-	void set() {
+  void _showLeds() {
     if (isLampMode) {
       setLeds(m_lamps[L_COL_R], m_lamps[L_COL_G], m_lamps[L_COL_B]);
     } else {
@@ -282,17 +269,46 @@ public:
         setLeds(m_colors[L_COL_R], m_colors[L_COL_G], m_colors[L_COL_B]);
       }
     }
-	  m_dleds.show();
-#ifdef _DEBUG_
-	  Serial.print("m_mode:");
-	  Serial.print(m_mode);
-	  Serial.print(" RGB:");
-	  Serial.print(m_colors[S_COL_R]);
-	  Serial.print(".");
-	  Serial.print(m_colors[S_COL_G]);
-	  Serial.print(".");
-	  Serial.println(m_colors[S_COL_B]);
-#endif
+  }
+
+  void _showSettings() {
+    uint8_t i;
+    int16_t v = m_pos;
+    for (i = 0; i < LEDS_COUNT; i++) {
+      m_dleds.setPixelColor(i, m_dleds.Color(0, 0, 0));
+    }
+    for (i = 0; i <= 2; i++) {
+      m_dleds.setPixelColor(i, m_dleds.Color(v >= 1?1:0, v >= 2?1:0, v >= 3?1:0));
+      v -= 3;
+    }
+    v = (m_val / m_step) % 10;
+    for (i = 7; i >= 5; i--) {
+      m_dleds.setPixelColor(i, m_dleds.Color(v >= 1?1:0, v >= 2?1:0, v >= 3?1:0));
+      v -= 3;
+    }
+    v = (m_val / m_step) / 10;
+    for (i = 4; i >= 3; i--) {
+      m_dleds.setPixelColor(i, m_dleds.Color(v >= 1?1:0, v >= 2?1:0, v >= 3?1:0));
+      v -= 3;
+    }
+  }
+
+public:
+	volatile bool isLampMode = false;
+
+	void begin() {
+    m_dleds = Adafruit_NeoPixel(LEDS_COUNT, LED_PIN1, NEO_GRB + NEO_KHZ800);
+    m_dleds.begin();
+	}
+
+	void set() {
+    if (m_settingsShow) {
+      _showSettings();
+    } else {
+      _showLeds();
+    }
+    m_dleds.show();
+    print();
 	}
 
 	void processMode() {
@@ -386,27 +402,47 @@ public:
 		}
 	}
 
-	void showSettings(int8_t pos, int8_t val, int8_t step) {
-		uint8_t i;
-	  pos++;
-	  for (i = 7; i >= 5; i--) {
-	    m_dleds.setPixelColor(i, m_dleds.Color(pos >= 1?1:0, pos >= 2?1:0, pos >= 3?1:0));
-	    pos -= 3;
-	  }
-	  pos = (val / step) % 10;
-	  for (i = 0; i < 3; i++) {
-	    m_dleds.setPixelColor(i, m_dleds.Color(pos >= 1?1:0, pos >= 2?1:0, pos >= 3?1:0));
-	    pos -= 3;
-	  }
-	  pos = (val / step) / 10;
-	  for (i = 3; i < 5; i++) {
-	    m_dleds.setPixelColor(i, m_dleds.Color(pos >= 1?1:0, pos >= 2?1:0, pos >= 3?1:0));
-	    pos -= 3;
-	  }
-	  for (i = 8; i < LEDS_COUNT; i++) {
-	    m_dleds.setPixelColor(i, m_dleds.Color(0, 0, 0));
-	  }
-	}
+  void setSettings(uint8_t r, uint8_t g, uint8_t b, int8_t pos, int8_t val, int8_t step) {
+    m_colors[L_COL_R] = r;
+    m_colors[L_COL_G] = g;
+    m_colors[L_COL_B] = b;
+    m_max[L_COL_R] = r;
+    m_max[L_COL_G] = g;
+    m_max[L_COL_B] = b;
+    m_pos = pos + 1;
+    m_val = val;
+    m_step = step;
+  }
+  void showSettings() {
+    m_settingsShow = !m_settingsShow;
+  }
+
+  void print() {
+#ifdef _DEBUG_
+    Serial.print("m_mode:");
+    Serial.print(m_mode);
+    Serial.print(" m_settingsShow:");
+    Serial.print(m_settingsShow);
+    Serial.print(" m_pos:");
+    Serial.print(m_pos);
+    Serial.print(" m_val:");
+    Serial.print(m_val);
+    Serial.print(" m_step:");
+    Serial.print(m_step);
+    Serial.print(" m_colors:");
+    Serial.print(m_colors[S_COL_R]);
+    Serial.print(".");
+    Serial.print(m_colors[S_COL_G]);
+    Serial.print(".");
+    Serial.print(m_colors[S_COL_B]);
+    Serial.print(" m_lamps:");
+    Serial.print(m_lamps[S_COL_R]);
+    Serial.print(".");
+    Serial.print(m_lamps[S_COL_G]);
+    Serial.print(".");
+    Serial.println(m_lamps[S_COL_B]);
+#endif
+  }
 };
 
 //******************************************************************************
@@ -437,15 +473,15 @@ volatile unsigned long _irValue;
 volatile unsigned long _msek = 0;
 volatile uint8_t _min = 0;
 
-volatile bool isSettingsShowing = false;
-
 void setup() {
   sm.begin();
   pinMode(AIR_PUMP_PIN, OUTPUT);
   pinMode(PUMP_PIN, OUTPUT);
   pinMode(FAN_PIN, OUTPUT);
   pinMode(HEATER_PIN, OUTPUT);
-  lm.begin(sm.get(S_COL_R), sm.get(S_COL_G), sm.get(S_COL_B));
+  lm.begin();
+  lm.setSettings(sm.get(S_COL_R), sm.get(S_COL_G), sm.get(S_COL_B), sm.pos(), sm.get(), sm.step());
+  lm.set();
   pumpOffMin = sm.get(S_MOTOR_OFF_MIN);
   // start serial port at 9600 bps:
 #ifdef _DEBUG_
@@ -495,7 +531,9 @@ void loop() {
     Serial.print(humidity);
     Serial.print("% ");
     Serial.print(temperature);
-    Serial.println("*C");
+    Serial.print("*C ");
+    Serial.print(airPumpWork);
+    Serial.println("m");
 #endif
     irrecv.resume(); // Receive the next value
   }
@@ -594,7 +632,7 @@ void onIrButtonPressed(unsigned long irValue) {
       lm.morningStart();
       break;
     case 0xFF02FD://Ok
-      isSettingsShowing = !isSettingsShowing;
+      lm.showSettings();
       sm.save();
       break;
     case 0xFF52AD://#
@@ -616,6 +654,7 @@ void onIrButtonPressed(unsigned long irValue) {
   if (irValue != 0xFFFFFFFF) {//repeat
     _irValue = irValue;
   }
+  lm.setSettings(sm.get(S_COL_R), sm.get(S_COL_G), sm.get(S_COL_B), sm.pos(), sm.get(), sm.step());
   lm.set();
 }
 
